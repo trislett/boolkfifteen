@@ -1,0 +1,39 @@
+# Android Studio / IntelliJ
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+
+# Build files
+/build/
+/app/build/
+
+# APKs and AABs
+*.apk
+*.aab
+
+# Keystore files (if you generate them locally and don't want to commit them)
+# *.jks
+# *.keystore
+
+# Captures (for UI tests)
+/captures/
+
+# Log files
+*.log
+
+# Android Studio Profiler
+*.hprof
+*.snapshot
+
+# Lint
+lint-results-*.xml
+lint-results-*.html
+lint-results-*.txt
+
+# Google Services (if you add them later and download the json file)
+# google-services.json
+
+# Firebase (if you add it later and download the json file)
+# app/google-services.json

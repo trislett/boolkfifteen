@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme specific colors -->
+    <color name="light_gray">#424242</color>
+    <color name="button_default_background">#616161</color>
+    <color name="tile_text_color">#FFFFFFFF</color>
+    <color name="tile_outline_color">#9575CD</color>
+</resources>
