@@ -6,7 +6,7 @@
     <string name="moves_initial_text">Moves: 0</string>
     <string name="moves_format">Moves: %d</string>
     <string name="timer_initial_text">Time: 00:00</string>
-    <string name="timer_format">Time: %02d:%02d</string>
+    <string name="timer_format">Time: %1$02d:%2$02d</string>
 
     <string name="display_mode_numbers">View: Numbers</string>
     <string name="display_mode_image">View: Image</string>
@@ -15,4 +15,5 @@
     <string name="difficulty_easy">Mode: Easy</string>
     <string name="difficulty_medium">Mode: Medium</string>
     <string name="difficulty_hard">Mode: Hard</string>
+    <string name="load_custom_image">Load Custom Image</string>
 </resources>
