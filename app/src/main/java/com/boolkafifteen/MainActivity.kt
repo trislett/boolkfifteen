@@ -19,10 +19,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.gridlayout.widget.GridLayout
-import com.canhub.cropper.CropImageContract
+import com.canhub.cropper.CropImageContract // For the launcher
 import com.canhub.cropper.CropImageContractOptions
 import com.canhub.cropper.CropImageOptions
-import com.canhub.cropper.CropImageView
+import com.canhub.cropper.CropImageView // <<< CRUCIAL IMPORT FOR CropImageView.Guidelines
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import kotlin.random.Random
 
@@ -53,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private var imagePieces = mutableListOf<BitmapDrawable?>()
     private var fullPuzzleImage: Bitmap? = null
     private var defaultPuzzleImageLoaded = false
+    private var customImageUriString: String? = null
 
     private val timerHandler = Handler(Looper.getMainLooper())
     private var startTime = 0L
@@ -69,13 +71,26 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "BoolkaFifteenGame"
         private const val EASY_SHUFFLE_MOVES = 100
         private const val MEDIUM_SHUFFLE_MOVES = 500
-        private const val HARD_SHUFFLE_MOVES = 2000
+        private const val HARD_SHUFFLE_MOVES = 5000
+
+        private const val KEY_TILES = "key_tiles"
+        private const val KEY_MOVE_COUNT = "key_move_count"
+        private const val KEY_DISPLAY_MODE = "key_display_mode"
+        private const val KEY_DIFFICULTY = "key_difficulty"
+        private const val KEY_GAME_WON = "key_game_won"
+        private const val KEY_GAME_STARTED = "key_game_started"
+        private const val KEY_TIMER_RUNNING = "key_timer_running"
+        private const val KEY_TIME_SWAP_BUFF = "key_time_swap_buff"
+        private const val KEY_START_TIME = "key_start_time"
+        private const val KEY_CURRENT_ELAPSED_TIME = "key_current_elapsed_time" // For timer state
+        private const val KEY_DEFAULT_IMAGE_LOADED = "key_default_image_loaded"
+        private const val KEY_CUSTOM_IMAGE_URI = "key_custom_image_uri"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        Log.d(TAG, "onCreate started")
+        Log.d(TAG, "onCreate started. savedInstanceState is ${if (savedInstanceState == null) "null" else "NOT null"}")
 
         gridLayoutBoard = findViewById(R.id.gridLayoutBoard)
         buttonShuffle = findViewById(R.id.buttonShuffle)
@@ -91,8 +106,29 @@ class MainActivity : AppCompatActivity() {
 
         Log.d(TAG, "Views and Launchers initialized")
 
-        loadDefaultAndSplitImage()
-        initializeBoard()
+        if (savedInstanceState != null) {
+            Log.d(TAG, "Restoring state from savedInstanceState")
+            restoreState(savedInstanceState)
+            if (fullPuzzleImage != null) {
+                splitImagePiecesFromBitmap(fullPuzzleImage)
+            } else if (customImageUriString != null) {
+                try {
+                    val uri = Uri.parse(customImageUriString)
+                    fullPuzzleImage = MediaStore.Images.Media.getBitmap(this.contentResolver, uri)
+                    splitImagePiecesFromBitmap(fullPuzzleImage)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error reloading custom image from URI: $e")
+                    loadDefaultAndSplitImage()
+                }
+            } else {
+                loadDefaultAndSplitImage()
+            }
+        } else {
+            Log.d(TAG, "No saved instance state, loading default image.")
+            loadDefaultAndSplitImage()
+        }
+
+        initializeBoard(savedInstanceState == null)
 
         buttonShuffle.setOnClickListener {
             Log.d(TAG, "Shuffle button clicked")
@@ -102,6 +138,8 @@ class MainActivity : AppCompatActivity() {
             stopTimer()
             resetTimerDisplay()
             resetMoveCounter()
+            customImageUriString = null
+            loadDefaultAndSplitImage()
             shuffleBoard()
         }
 
@@ -111,7 +149,7 @@ class MainActivity : AppCompatActivity() {
                 DisplayMode.IMAGE_ONLY -> DisplayMode.NUMBERS_AND_IMAGE
                 DisplayMode.NUMBERS_AND_IMAGE -> DisplayMode.NUMBERS_ONLY
             }
-            updateDisplayModeButtonText() // DEFINED BELOW
+            updateDisplayModeButtonText()
             updateBoardUI()
         }
 
@@ -121,7 +159,7 @@ class MainActivity : AppCompatActivity() {
                 Difficulty.MEDIUM -> Difficulty.HARD
                 Difficulty.HARD -> Difficulty.EASY
             }
-            updateDifficultyButtonText() // DEFINED BELOW
+            updateDifficultyButtonText()
             Log.d(TAG, "Difficulty changed to: $currentDifficulty")
         }
 
@@ -129,14 +167,75 @@ class MainActivity : AppCompatActivity() {
             imagePickerLauncher.launch("image/*")
         }
 
-        updateDisplayModeButtonText() // DEFINED BELOW
-        updateDifficultyButtonText() // DEFINED BELOW
+        updateDisplayModeButtonText()
+        updateDifficultyButtonText()
         updateMovesDisplay()
-        resetTimerDisplay()
+
+        if (savedInstanceState == null) {
+            resetTimerDisplay()
+        } else {
+            if (isTimerRunning) {
+                timerHandler.post(timerRunnable) // Re-post runnable if it was running
+                Log.d(TAG, "Timer was running, re-posting runnable.")
+            } else {
+                updateTimerDisplayFromSavedValues()
+            }
+        }
         Log.d(TAG, "onCreate finished")
     }
 
-    // --- DEFINITIONS FOR THE MISSING FUNCTIONS ---
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        Log.d(TAG, "onSaveInstanceState called")
+        outState.putIntArray(KEY_TILES, tiles)
+        outState.putInt(KEY_MOVE_COUNT, moveCount)
+        outState.putString(KEY_DISPLAY_MODE, currentDisplayMode.name)
+        outState.putString(KEY_DIFFICULTY, currentDifficulty.name)
+        outState.putBoolean(KEY_GAME_WON, isGameWon)
+        outState.putBoolean(KEY_GAME_STARTED, gameStarted)
+        outState.putBoolean(KEY_TIMER_RUNNING, isTimerRunning)
+        outState.putLong(KEY_TIME_SWAP_BUFF, timeSwapBuff)
+        outState.putLong(KEY_START_TIME, startTime)
+        if (isTimerRunning) { // Save current elapsed time for accurate restoration
+            outState.putLong(KEY_CURRENT_ELAPSED_TIME, System.currentTimeMillis() - startTime)
+        }
+        outState.putBoolean(KEY_DEFAULT_IMAGE_LOADED, defaultPuzzleImageLoaded)
+        customImageUriString?.let { outState.putString(KEY_CUSTOM_IMAGE_URI, it) }
+    }
+
+    private fun restoreState(savedInstanceState: Bundle) {
+        tiles = savedInstanceState.getIntArray(KEY_TILES) ?: IntArray(gridSize * gridSize)
+        moveCount = savedInstanceState.getInt(KEY_MOVE_COUNT)
+        currentDisplayMode = DisplayMode.valueOf(savedInstanceState.getString(KEY_DISPLAY_MODE) ?: DisplayMode.NUMBERS_ONLY.name)
+        currentDifficulty = Difficulty.valueOf(savedInstanceState.getString(KEY_DIFFICULTY) ?: Difficulty.HARD.name)
+        isGameWon = savedInstanceState.getBoolean(KEY_GAME_WON)
+        gameStarted = savedInstanceState.getBoolean(KEY_GAME_STARTED)
+        isTimerRunning = savedInstanceState.getBoolean(KEY_TIMER_RUNNING)
+        timeSwapBuff = savedInstanceState.getLong(KEY_TIME_SWAP_BUFF)
+        startTime = savedInstanceState.getLong(KEY_START_TIME)
+
+        if (isTimerRunning) {
+            // This helps if we want to immediately update UI before runnable ticks,
+            // but timerRunnable will use startTime and timeSwapBuff primarily.
+            timeInMilliseconds = savedInstanceState.getLong(KEY_CURRENT_ELAPSED_TIME, 0L)
+        } else {
+            timeInMilliseconds = 0L
+        }
+
+        defaultPuzzleImageLoaded = savedInstanceState.getBoolean(KEY_DEFAULT_IMAGE_LOADED, true)
+        customImageUriString = savedInstanceState.getString(KEY_CUSTOM_IMAGE_URI)
+        blankPos = tiles.indexOf(0)
+    }
+
+    private fun updateTimerDisplayFromSavedValues() {
+        updateTime = timeSwapBuff // timeInMilliseconds is 0 if timer wasn't running
+        val secs = (updateTime / 1000).toInt()
+        val mins = secs / 60
+        val displaySecs = secs % 60
+        textViewTimer.text = getString(R.string.timer_format, mins, displaySecs)
+    }
+
+    // --- DEFINITIONS FOR THE HELPER FUNCTIONS ---
     private fun updateDisplayModeButtonText() {
         buttonToggleMode.text = when (currentDisplayMode) {
             DisplayMode.NUMBERS_ONLY -> getString(R.string.display_mode_numbers)
@@ -152,8 +251,7 @@ class MainActivity : AppCompatActivity() {
             Difficulty.HARD -> getString(R.string.difficulty_hard)
         }
     }
-    // --- END OF DEFINITIONS FOR MISSING FUNCTIONS ---
-
+    // --- END OF DEFINITIONS FOR HELPER FUNCTIONS ---
 
     private fun setupImagePickerLauncher() {
         imagePickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -162,11 +260,14 @@ class MainActivity : AppCompatActivity() {
                 val cropOptions = CropImageContractOptions(
                     uri = it,
                     cropImageOptions = CropImageOptions(
-                        guidelines = CropImageView.Guidelines.ON, // Uses the imported CropImageView
+                        guidelines = CropImageView.Guidelines.ON, // Uses imported CropImageView
                         aspectRatioX = 1,
                         aspectRatioY = 1,
                         fixAspectRatio = true,
-                        outputCompressQuality = 80
+                        outputCompressQuality = 80,
+                        outputRequestWidth = 800,
+                        outputRequestHeight = 800,
+                        outputRequestSizeOptions = CropImageView.RequestSizeOptions.RESIZE_INSIDE
                     )
                 )
                 cropImageLauncher.launch(cropOptions)
@@ -179,12 +280,13 @@ class MainActivity : AppCompatActivity() {
             if (result.isSuccessful) {
                 result.uriContent?.let { croppedUri ->
                     Log.d(TAG, "Image cropped successfully: $croppedUri")
+                    customImageUriString = croppedUri.toString()
+                    defaultPuzzleImageLoaded = false
                     try {
                         val bitmap = MediaStore.Images.Media.getBitmap(this.contentResolver, croppedUri)
                         if (bitmap != null) {
                             fullPuzzleImage = bitmap
                             splitImagePiecesFromBitmap(fullPuzzleImage)
-                            defaultPuzzleImageLoaded = false
                             currentDisplayMode = DisplayMode.IMAGE_ONLY
                             updateDisplayModeButtonText() // Call here
                             shuffleBoard()
@@ -214,6 +316,7 @@ class MainActivity : AppCompatActivity() {
             fullPuzzleImage = defaultBitmap
             splitImagePiecesFromBitmap(fullPuzzleImage)
             defaultPuzzleImageLoaded = true
+            customImageUriString = null
             Log.d(TAG, "Default image loaded and split.")
         } catch (e: Exception) {
             Log.e(TAG, "Error loading default image: ${e.message}")
@@ -253,7 +356,7 @@ class MainActivity : AppCompatActivity() {
             val secs = (updateTime / 1000).toInt()
             val mins = secs / 60
             val displaySecs = secs % 60
-            textViewTimer.text = getString(R.string.timer_format, mins, displaySecs) // Uses corrected format
+            textViewTimer.text = getString(R.string.timer_format, mins, displaySecs)
             timerHandler.postDelayed(this, 500)
         }
     }
@@ -261,6 +364,9 @@ class MainActivity : AppCompatActivity() {
     private fun startTimer() {
         if (!isTimerRunning) {
             startTime = System.currentTimeMillis()
+            // timeSwapBuff should be 0 if we are truly starting fresh.
+            // If resuming a paused game, timeSwapBuff would hold previous time.
+            // For this game, shuffle resets timer, so timeSwapBuff is 0.
             timerHandler.post(timerRunnable)
             isTimerRunning = true
             Log.d(TAG, "Timer started.")
@@ -269,18 +375,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopTimer() {
         if (isTimerRunning) {
-            timeSwapBuff += timeInMilliseconds
+            // Capture elapsed time for the current segment before stopping
+            timeSwapBuff += (System.currentTimeMillis() - startTime)
             timerHandler.removeCallbacks(timerRunnable)
             isTimerRunning = false
-            Log.d(TAG, "Timer stopped.")
+            Log.d(TAG, "Timer stopped. timeSwapBuff: $timeSwapBuff")
         }
     }
 
     private fun resetTimerDisplay() {
         timeSwapBuff = 0L
-        timeInMilliseconds = 0L
+        timeInMilliseconds = 0L // Not strictly needed here as updateTime will use timeSwapBuff
         updateTime = 0L
-        textViewTimer.text = getString(R.string.timer_format, 0, 0) // Uses corrected format
+        startTime = 0L // Reset startTime as well
+        textViewTimer.text = getString(R.string.timer_format, 0, 0)
         Log.d(TAG, "Timer display reset.")
     }
 
@@ -298,14 +406,18 @@ class MainActivity : AppCompatActivity() {
         textViewMoves.text = getString(R.string.moves_format, moveCount)
     }
 
-    private fun initializeBoard() {
-        Log.d(TAG, "initializeBoard started")
-        isGameWon = false
+    private fun initializeBoard(performShuffle: Boolean = true) {
+        Log.d(TAG, "initializeBoard started, performShuffle: $performShuffle")
         buttons.clear()
         gridLayoutBoard.removeAllViews()
-        resetMoveCounter()
-        resetTimerDisplay()
-        gameStarted = false
+
+        if (performShuffle) { // Only reset these if it's a new game/shuffle
+            isGameWon = false
+            resetMoveCounter()
+            resetTimerDisplay()
+            gameStarted = false
+        }
+
 
         gridLayoutBoard.post {
             Log.d(TAG, "gridLayoutBoard.post running")
@@ -348,7 +460,15 @@ class MainActivity : AppCompatActivity() {
                 gridLayoutBoard.addView(button)
             }
             Log.d(TAG, "All ${buttons.size} buttons created and added to grid.")
-            shuffleBoard()
+
+            if (performShuffle) {
+                shuffleBoard()
+            } else {
+                updateBoardUI()
+                if (isGameWon) {
+                    textViewStatus.text = getString(R.string.win_message)
+                }
+            }
         }
         Log.d(TAG, "initializeBoard finished (post block scheduled)")
     }
@@ -464,7 +584,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun shuffleBoard() {
         Log.d(TAG, "shuffleBoard started - Difficulty: $currentDifficulty")
-        isGameWon = false
+        isGameWon = false // Ensure game is not won when shuffling
 
         val tempTilesArray = IntArray(gridSize * gridSize) { if (it == gridSize * gridSize - 1) 0 else it + 1 }
         var currentBlankForShuffle = tempTilesArray.indexOf(0)
@@ -497,12 +617,14 @@ class MainActivity : AppCompatActivity() {
         tiles = tempTilesArray
         blankPos = tiles.indexOf(0)
 
+        // Reset game state for the new puzzle
         resetMoveCounter()
-        if (gameStarted || isTimerRunning) {
+        if (gameStarted || isTimerRunning) { // If timer was running or game had started
             stopTimer()
             resetTimerDisplay()
             gameStarted = false
         }
+        textViewStatus.text = "" // Clear win/status message
         updateBoardUI()
     }
 
